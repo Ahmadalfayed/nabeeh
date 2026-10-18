@@ -1,6 +1,6 @@
 import { idbGetAll, idbGet, idbPut, idbDel, idbClear, uid } from './js/db.js';
 import { PRESETS, DEFAULT_PERSONAS, PROMPT_LIBRARY, TOOLS } from './js/presets.js';
-import { streamChat, generateImage } from './js/ai.js';
+import { streamChat, generateImage, sanitizeApiKey, looksLikeGeminiKey, testConnection, arabicNetworkError } from './js/ai.js';
 import { fileToAttachment, attachmentsToContent } from './js/files.js';
 
 const $ = (s, el=document) => el.querySelector(s);
@@ -94,9 +94,10 @@ function isDemo() {
 
 /** If user pasted a key while still on «تجريبي», auto-switch to a real provider. */
 function exitDemoIfKeyPresent(settings) {
-  const key = (settings.key || '').trim();
+  settings.key = sanitizeApiKey(settings.key || '');
+  const key = settings.key;
   if (!key) return settings;
-  const looksGemini = /^AIza/i.test(key) || /gemini/i.test(settings.preset || '') || /generativelanguage/i.test(settings.base || '');
+  const looksGemini = looksLikeGeminiKey(key) || /gemini/i.test(settings.preset || '') || /generativelanguage/i.test(settings.base || '');
   const looksOpenAI = /^sk-/i.test(key);
   let presetId = settings.preset;
   if (!presetId || presetId === 'demo' || settings.model === 'demo' || !settings.base) {
@@ -284,7 +285,8 @@ async function sendMessage(text) {
     if (state.settings.autoSpeak) speak(full);
   } catch (e) {
     if (e.name !== 'AbortError') {
-      assistant.content = `⚠️ ${e.message || e}`;
+      const msg = e.message || String(e);
+      assistant.content = `⚠️ ${/Failed to fetch|ISO-8859-1|NetworkError/i.test(msg) ? arabicNetworkError(e) : msg}`;
       assistant._streaming = false;
       await persistConv(conv);
       renderMessages();
@@ -503,7 +505,7 @@ document.addEventListener('click', async (e) => {
       await saveSettings(); updateModelChip(); renderLibrary(); hideModal(); toast('تم تفعيل الشخصية'); break;
     case 'save-settings': {
       state.settings.base = $('#apiBase').value.trim();
-      state.settings.key = $('#apiKey').value.trim();
+      state.settings.key = sanitizeApiKey($('#apiKey').value);
       state.settings.model = $('#apiModel').value.trim();
       state.settings.useProxy = $('#useProxy').checked;
       state.settings.proxyUrl = $('#proxyUrl').value.trim();
@@ -521,6 +523,7 @@ document.addEventListener('click', async (e) => {
       }
       await saveSettings();
       renderSettings();
+      $('#apiKey').value = state.settings.key; // show cleaned key (no hidden chars)
       updateModelChip();
       if (isDemo()) {
         $('#settingsMsg').textContent = 'محفوظ — الوضع التجريبي (لا مفتاح). اختر مزوداً والصق مفتاحاً للردود الحقيقية.';
@@ -534,24 +537,31 @@ document.addEventListener('click', async (e) => {
       break;
     }
     case 'test-settings': {
-      $('#settingsMsg').textContent = 'جارٍ الاختبار…';
-      try {
-        if (isDemo() && !$('#apiKey').value) { $('#settingsMsg').textContent = 'الوضع التجريبي يعمل بدون مفتاح ✅'; break; }
-        const base = $('#apiBase').value.trim();
-        const key = $('#apiKey').value.trim();
-        const useProxy = $('#useProxy').checked;
-        const proxyUrl = $('#proxyUrl').value.trim();
-        const url = useProxy ? `${proxyUrl}/v1/models` : `${base.replace(/\/$/,'')}/models`;
-        const headers = {};
-        if (useProxy) { headers['X-Target-Base']=base; headers['X-Api-Key']=key; }
-        else headers['Authorization']=`Bearer ${key}`;
-        const r = await fetch(url, { headers });
-        $('#settingsMsg').textContent = r.ok ? 'الاتصال ناجح ✅' : `فشل (${r.status})`;
-        $('#settingsMsg').style.color = r.ok ? 'var(--ok)' : 'var(--danger)';
-      } catch (err) {
-        $('#settingsMsg').textContent = 'تعذر الاتصال: ' + err.message;
-        $('#settingsMsg').style.color = 'var(--danger)';
-      }
+      $('#settingsMsg').textContent = 'جارٍ اختبار الاتصال…';
+      $('#settingsMsg').style.color = 'var(--muted)';
+      // Persist current form first (with sanitize)
+      state.settings.base = $('#apiBase').value.trim();
+      state.settings.key = sanitizeApiKey($('#apiKey').value);
+      state.settings.model = $('#apiModel').value.trim();
+      state.settings.useProxy = $('#useProxy').checked;
+      state.settings.proxyUrl = $('#proxyUrl').value.trim();
+      const preset = PRESETS.find(p=>p.id===$('#presetSel').value);
+      if (preset) state.settings.preset = preset.id;
+      exitDemoIfKeyPresent(state.settings);
+      await saveSettings();
+      renderSettings();
+      $('#apiKey').value = state.settings.key;
+      updateModelChip();
+      const result = await testConnection({
+        base: state.settings.base,
+        key: state.settings.key,
+        model: state.settings.model,
+        useProxy: state.settings.useProxy,
+        proxyUrl: state.settings.proxyUrl,
+      });
+      $('#settingsMsg').textContent = result.message;
+      $('#settingsMsg').style.color = result.ok ? 'var(--ok)' : 'var(--danger)';
+      toast(result.ok ? 'الاتصال ناجح' : 'فشل الاختبار');
       break;
     }
     case 'clear-key':

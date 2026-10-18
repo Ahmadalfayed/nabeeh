@@ -1,4 +1,4 @@
-const CACHE = 'nabeeh-v4';
+const CACHE = 'nabeeh-v5';
 const ASSETS = [
   './',
   './index.html',
@@ -31,17 +31,23 @@ self.addEventListener('activate', (e) => {
 });
 self.addEventListener('fetch', (e) => {
   const req = e.request;
+  // Never intercept API calls or non-GET — critical for Gemini/OpenAI from the page
   if (req.method !== 'GET') return;
-  const url = new URL(req.url);
-  if (url.origin !== location.origin) return;
+  let url;
+  try { url = new URL(req.url); } catch { return; }
+  if (url.origin !== self.location.origin) return;
+  // Bypass SW for navigations that look like API (none on our origin, but be safe)
+  if (url.pathname.includes('/v1/')) return;
   e.respondWith(
     caches.match(req).then(cached => {
       if (cached) return cached;
       return fetch(req).then(res => {
-        const copy = res.clone();
-        caches.open(CACHE).then(c => c.put(req, copy));
+        if (res && res.ok && res.type === 'basic') {
+          const copy = res.clone();
+          caches.open(CACHE).then(c => c.put(req, copy));
+        }
         return res;
-      }).catch(() => caches.match('./index.html'));
+      }).catch(() => cached || caches.match('./index.html'));
     })
   );
 });
