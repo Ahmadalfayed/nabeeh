@@ -1,0 +1,7 @@
+server/.env
+node_modules/
+.DS_Store
+screenshots/
+*.pem
+.env
+.env.*
