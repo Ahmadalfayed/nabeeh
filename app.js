@@ -64,6 +64,10 @@ async function loadAll() {
     state.personas = [...DEFAULT_PERSONAS];
   }
   if (!state.currentId && state.conversations[0]) state.currentId = state.conversations[0].id;
+  const before = JSON.stringify({p:state.settings.preset,m:state.settings.model,b:state.settings.base});
+  exitDemoIfKeyPresent(state.settings);
+  const after = JSON.stringify({p:state.settings.preset,m:state.settings.model,b:state.settings.base});
+  if (before !== after) await saveSettings();
   renderAll();
 }
 
@@ -83,7 +87,30 @@ function currentConv() {
 }
 
 function isDemo() {
-  return !state.settings.key || state.settings.preset === 'demo' || state.settings.model === 'demo' || !state.settings.base;
+  // Demo only when we cannot call a real API (no key, no base, or explicit demo model)
+  const s = state.settings;
+  return !s.key || !s.base || !s.model || s.model === 'demo' || s.preset === 'demo';
+}
+
+/** If user pasted a key while still on «تجريبي», auto-switch to a real provider. */
+function exitDemoIfKeyPresent(settings) {
+  const key = (settings.key || '').trim();
+  if (!key) return settings;
+  const looksGemini = /^AIza/i.test(key) || /gemini/i.test(settings.preset || '') || /generativelanguage/i.test(settings.base || '');
+  const looksOpenAI = /^sk-/i.test(key);
+  let presetId = settings.preset;
+  if (!presetId || presetId === 'demo' || settings.model === 'demo' || !settings.base) {
+    if (looksGemini) presetId = 'gemini';
+    else if (looksOpenAI) presetId = 'openai';
+    else presetId = settings.base ? (presetId === 'demo' ? 'custom' : presetId) : 'gemini';
+  }
+  const preset = PRESETS.find(x => x.id === presetId) || PRESETS.find(x => x.id === 'gemini');
+  if (preset && preset.id !== 'demo') {
+    settings.preset = preset.id;
+    if (!settings.base) settings.base = preset.base || settings.base;
+    if (!settings.model || settings.model === 'demo') settings.model = preset.model || 'gemini-flash-latest';
+  }
+  return settings;
 }
 
 function updateModelChip() {
@@ -239,6 +266,10 @@ async function sendMessage(text) {
       useProxy: state.settings.useProxy,
       proxyUrl: state.settings.proxyUrl,
       signal: state.abort.signal,
+      onStatus: (msg) => {
+        const last = $('#messages .msg.assistant:last-child .body');
+        if (last) last.innerHTML = `<span class="muted">${escapeHtml(msg)}</span>`;
+      },
       onToken: (_tok, all) => {
         assistant.content = all;
         const last = $('#messages .msg.assistant:last-child .body');
@@ -462,7 +493,9 @@ document.addEventListener('click', async (e) => {
       else { if (p.base) state.settings.base = p.base; if (p.model) state.settings.model = p.model; }
       await saveSettings(); updateModelChip(); hideModal();
       nav('settings'); renderSettings();
-      toast(p.id==='demo'?'الوضع التجريبي':'اختر المزود — أدخل المفتاح في الإعدادات');
+      if (p.id==='demo') toast('الوضع التجريبي');
+      else if (state.settings.key) toast('المزود جاهز: ' + (p.model || p.name));
+      else toast('الصق المفتاح ثم اضغط حفظ');
       break;
     }
     case 'set-persona':
@@ -471,17 +504,33 @@ document.addEventListener('click', async (e) => {
     case 'save-settings': {
       state.settings.base = $('#apiBase').value.trim();
       state.settings.key = $('#apiKey').value.trim();
-      state.settings.model = $('#apiModel').value.trim() || 'demo';
+      state.settings.model = $('#apiModel').value.trim();
       state.settings.useProxy = $('#useProxy').checked;
       state.settings.proxyUrl = $('#proxyUrl').value.trim();
       state.settings.temperature = parseFloat($('#temp').value);
       state.settings.autoSpeak = $('#autoSpeak').checked;
       const preset = PRESETS.find(p=>p.id===$('#presetSel').value);
       if (preset) state.settings.preset = preset.id;
-      await saveSettings(); updateModelChip();
-      $('#settingsMsg').textContent = 'تم الحفظ محلياً ✅';
-      $('#settingsMsg').style.color = 'var(--ok)';
-      toast('تم حفظ الإعدادات');
+      // Auto-leave demo when a key is saved (common UX mistake: paste key while still on تجريبي)
+      exitDemoIfKeyPresent(state.settings);
+      if (!state.settings.key) {
+        // No key → stay/return to demo
+        state.settings.preset = 'demo';
+        state.settings.base = '';
+        state.settings.model = 'demo';
+      }
+      await saveSettings();
+      renderSettings();
+      updateModelChip();
+      if (isDemo()) {
+        $('#settingsMsg').textContent = 'محفوظ — الوضع التجريبي (لا مفتاح). اختر مزوداً والصق مفتاحاً للردود الحقيقية.';
+        $('#settingsMsg').style.color = 'var(--muted)';
+        toast('الوضع التجريبي');
+      } else {
+        $('#settingsMsg').textContent = `تم الحفظ ✅ المزود: ${state.settings.preset} · النموذج: ${state.settings.model}`;
+        $('#settingsMsg').style.color = 'var(--ok)';
+        toast('خرجنا من التجريبي — ' + state.settings.model);
+      }
       break;
     }
     case 'test-settings': {

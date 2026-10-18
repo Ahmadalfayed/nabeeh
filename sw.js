@@ -1,4 +1,4 @@
-const CACHE = 'nabeeh-v3';
+const CACHE = 'nabeeh-v4';
 const ASSETS = [
   './',
   './index.html',
