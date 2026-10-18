@@ -4,7 +4,7 @@ export const PRESETS = [
   { id: 'openai', name: 'OpenAI', base: 'https://api.openai.com/v1', model: 'gpt-4o-mini', keyNeeded: true },
   { id: 'openrouter', name: 'OpenRouter', base: 'https://openrouter.ai/api/v1', model: 'openai/gpt-4o-mini', keyNeeded: true },
   { id: 'groq', name: 'Groq', base: 'https://api.groq.com/openai/v1', model: 'llama-3.3-70b-versatile', keyNeeded: true },
-  { id: 'gemini', name: 'Google Gemini (OpenAI-compatible)', base: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-2.0-flash', keyNeeded: true },
+  { id: 'gemini', name: 'Google Gemini (OpenAI-compatible)', base: 'https://generativelanguage.googleapis.com/v1beta/openai', model: 'gemini-3.5-flash', keyNeeded: true },
   { id: 'deepseek', name: 'DeepSeek', base: 'https://api.deepseek.com/v1', model: 'deepseek-chat', keyNeeded: true },
   { id: 'together', name: 'Together AI', base: 'https://api.together.xyz/v1', model: 'meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo', keyNeeded: true },
   { id: 'custom', name: 'مخصص (OpenAI-compatible)', base: '', model: '', keyNeeded: true },
